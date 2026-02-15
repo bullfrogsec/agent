@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Enable egress filtering
+        uses: bullfrogsec/bullfrog@78a54a1a4c3d3325fe01846f60b630b6ee7bcf06 # v0.9.3
+        with:
+          egress-policy: block
+          allowed-domains: |
+            *.archive.ubuntu.com
+            *.docker.io
+            *.golang.org
+            deb.debian.org
+            github.com
+            packages.microsoft.com
+            production.cloudflare.docker.com
+
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev
+
+      - name: Build
+        run: make build
+
+      - name: Test (CI)
+        run: make test.ci
+
+      - name: Upload agent binary
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: agent
+          path: agent
+          retention-days: 1
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      [
+        test-integration-audit,
+        test-integration-block,
+        test-integration-block-dns-any,
+        test-integration-docker-block,
+      ]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Enable egress filtering
+        uses: bullfrogsec/bullfrog@78a54a1a4c3d3325fe01846f60b630b6ee7bcf06 # v0.9.3
+        with:
+          egress-policy: block
+          allowed-domains: |
+            github.com
+            api.github.com
+            uploads.github.com
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download agent binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tar -czf agent.tar.gz agent
+          gh release create ${{ github.ref_name }} \
+            --title "${{ github.ref_name }}" \
+            --notes "See [CHANGELOG.md](https://github.com/bullfrogsec/agent/blob/main/CHANGELOG.md)" \
+            agent.tar.gz
+
+  test-integration-audit:
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Download agent binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
+
+      - name: Make agent executable
+        run: chmod +x agent
+
+      - name: Run integration test
+        run: make test.integration.audit
+
+  test-integration-block:
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Download agent binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
+
+      - name: Make agent executable
+        run: chmod +x agent
+
+      - name: Run integration test
+        run: make test.integration.block
+
+  test-integration-block-dns-any:
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Download agent binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
+
+      - name: Make agent executable
+        run: chmod +x agent
+
+      - name: Run integration test
+        run: make test.integration.block-dns-any
+
+  test-integration-docker-block:
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Download agent binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
+
+      - name: Make agent executable
+        run: chmod +x agent
+
+      - name: Run integration test
+        run: make test.integration.docker-block
