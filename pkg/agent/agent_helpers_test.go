@@ -73,18 +73,20 @@ func (m *mockFileSystem) Clear() {
 }
 
 type mockProcProvider struct {
-	InodeToPID    map[uint64]int
-	PIDToName     map[int]string
-	PIDToCmdLine  map[int]string
-	PIDToExecPath map[int]string
+	InodeToPID     map[uint64]int
+	PIDToName      map[int]string
+	PIDToCmdLine   map[int]string
+	PIDToExecPath  map[int]string
+	PIDToParentPID map[int]int
 }
 
 func newMockProcProvider() *mockProcProvider {
 	return &mockProcProvider{
-		InodeToPID:    make(map[uint64]int),
-		PIDToName:     make(map[int]string),
-		PIDToCmdLine:  make(map[int]string),
-		PIDToExecPath: make(map[int]string),
+		InodeToPID:     make(map[uint64]int),
+		PIDToName:      make(map[int]string),
+		PIDToCmdLine:   make(map[int]string),
+		PIDToExecPath:  make(map[int]string),
+		PIDToParentPID: make(map[int]int),
 	}
 }
 
@@ -127,6 +129,13 @@ func (m *mockProcProvider) GetProcesses() ([]int, error) {
 		pids = append(pids, pid)
 	}
 	return pids, nil
+}
+
+func (m *mockProcProvider) GetParentPID(pid int) (int, error) {
+	if ppid, ok := m.PIDToParentPID[pid]; ok {
+		return ppid, nil
+	}
+	return 0, fmt.Errorf("process not found")
 }
 
 // mockContainerInfo holds container information

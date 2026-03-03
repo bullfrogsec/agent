@@ -54,37 +54,47 @@ type DockerInfo struct {
 	ContainerName  string `json:"containerName"`
 }
 
+// ParentProcess holds identification data for an ancestor process
+type ParentProcess struct {
+	PID            int    `json:"pid"`
+	ProcessName    string `json:"processName"`
+	CommandLine    string `json:"commandLine"`
+	ExecutablePath string `json:"executablePath"`
+}
+
 // ConnectionLog represents a logged network connection attempt
 type ConnectionLog struct {
-	Timestamp      int64       `json:"timestamp"`
-	Decision       string      `json:"decision"`
-	Protocol       string      `json:"protocol"`
-	SrcIP          string      `json:"srcIP"`
-	SrcPort        string      `json:"srcPort"`
-	DstIP          string      `json:"dstIP"`
-	DstPort        string      `json:"dstPort"`
-	Domain         string      `json:"domain"`
-	Reason         string      `json:"reason"`
-	PID            int         `json:"pid"`
-	ProcessName    string      `json:"processName"`
-	CommandLine    string      `json:"commandLine"`
-	ExecutablePath string      `json:"executablePath"`
-	ProcessingTime int64       `json:"processingTime"`
-	Docker         *DockerInfo `json:"docker,omitempty"`
+	Timestamp       int64           `json:"timestamp"`
+	Decision        string          `json:"decision"`
+	Protocol        string          `json:"protocol"`
+	SrcIP           string          `json:"srcIP"`
+	SrcPort         string          `json:"srcPort"`
+	DstIP           string          `json:"dstIP"`
+	DstPort         string          `json:"dstPort"`
+	Domain          string          `json:"domain"`
+	Reason          string          `json:"reason"`
+	PID             int             `json:"pid"`
+	ProcessName     string          `json:"processName"`
+	CommandLine     string          `json:"commandLine"`
+	ExecutablePath  string          `json:"executablePath"`
+	ParentProcesses []ParentProcess `json:"parentProcesses,omitempty"`
+	ProcessingTime  int64           `json:"processingTime"`
+	Docker          *DockerInfo     `json:"docker,omitempty"`
 }
 
 // PacketInfo holds information extracted from a network packet
 type PacketInfo struct {
-	SrcIP          string
-	SrcPort        string
-	DstIP          string
-	DstPort        string
-	PID            int
-	ProcessName    string
-	CommandLine    string
-	ExecutablePath string
-	Docker         *DockerInfo
-	StartTime      time.Time
+	SrcIP           string
+	SrcPort         string
+	DstIP           string
+	DstPort         string
+	PID             int
+	ProcessName     string
+	CommandLine     string
+	ExecutablePath  string
+	ParentProcesses []ParentProcess
+	Docker          *DockerInfo
+	StartTime       time.Time
 }
 
 // AgentConfig configures the Agent behavior
@@ -103,12 +113,13 @@ type AgentConfig struct {
 
 // ProcessInfo holds process identification data
 type ProcessInfo struct {
-	PID            int
-	ProcessName    string      // From /proc/[pid]/comm
-	CommandLine    string      // From /proc/[pid]/cmdline (full command with args)
-	ExecutablePath string      // From /proc/[pid]/exe (actual binary location)
-	Docker         *DockerInfo // Docker container info if process is in a container
-	Timestamp      int64
+	PID             int
+	ProcessName     string          // From /proc/[pid]/comm
+	CommandLine     string          // From /proc/[pid]/cmdline (full command with args)
+	ExecutablePath  string          // From /proc/[pid]/exe (actual binary location)
+	ParentProcesses []ParentProcess // Ancestor chain from immediate parent up to init
+	Docker          *DockerInfo     // Docker container info if process is in a container
+	Timestamp       int64
 }
 
 // SocketEntry represents a parsed line from /proc/net/{tcp,udp}

@@ -29,6 +29,9 @@ type IProcProvider interface {
 
 	// GetProcesses returns list of PIDs in /proc
 	GetProcesses() ([]int, error)
+
+	// GetParentPID reads PPid from /proc/[pid]/status
+	GetParentPID(pid int) (int, error)
 }
 
 // LinuxProcProvider implements IProcProvider for real /proc filesystem
@@ -147,6 +150,24 @@ func (p *LinuxProcProvider) GetExecutablePath(pid int) (string, error) {
 	return target, nil
 }
 
+func (p *LinuxProcProvider) GetParentPID(pid int) (int, error) {
+	statusPath := fmt.Sprintf("/proc/%d/status", pid)
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "PPid:") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				return 0, fmt.Errorf("invalid PPid line in %s", statusPath)
+			}
+			return strconv.Atoi(fields[1])
+		}
+	}
+	return 0, fmt.Errorf("PPid not found in %s", statusPath)
+}
+
 // parseSocketLine parses a line from /proc/net/{tcp,udp}
 // Format: sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode
 // Example: "0: 0100007F:0277 00000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 966876 1 ..."
@@ -218,13 +239,46 @@ func detectIPVersion(ipStr string) int {
 	return 6
 }
 
+// getParentChain walks the process tree from pid up to (but not including) PID 1,
+// returning a flat slice ordered from immediate parent to most distant ancestor.
+func getParentChain(provider IProcProvider, pid int) []ParentProcess {
+	var chain []ParentProcess
+	current := pid
+	for {
+		ppid, err := provider.GetParentPID(current)
+		if err != nil || ppid <= 1 {
+			break
+		}
+		name, err := provider.GetProcessName(ppid)
+		if err != nil {
+			name = "unknown"
+		}
+		cmdLine, err := provider.GetCommandLine(ppid)
+		if err != nil {
+			cmdLine = "unknown"
+		}
+		execPath, err := provider.GetExecutablePath(ppid)
+		if err != nil {
+			execPath = "unknown"
+		}
+		chain = append(chain, ParentProcess{
+			PID:            ppid,
+			ProcessName:    name,
+			CommandLine:    cmdLine,
+			ExecutablePath: execPath,
+		})
+		current = ppid
+	}
+	return chain
+}
+
 // getProcessInfo is the main entry point for process lookup
-// Returns: (PID, ProcessName, CommandLine, ExecutablePath, error)
-func getProcessInfo(provider IProcProvider, srcIP, srcPort, protocol string) (int, string, string, string, error) {
+// Returns: (PID, ProcessName, CommandLine, ExecutablePath, ParentProcesses, error)
+func getProcessInfo(provider IProcProvider, srcIP, srcPort, protocol string) (int, string, string, string, []ParentProcess, error) {
 	// Convert IP:Port to hex format
 	hexAddr, err := ipPortToHex(srcIP, srcPort)
 	if err != nil {
-		return 0, "unknown", "unknown", "unknown", fmt.Errorf("failed to convert address: %w", err)
+		return 0, "unknown", "unknown", "unknown", nil, fmt.Errorf("failed to convert address: %w", err)
 	}
 
 	// Determine IP version (4 or 6)
@@ -233,7 +287,7 @@ func getProcessInfo(provider IProcProvider, srcIP, srcPort, protocol string) (in
 	// Read socket entries from /proc/net/{tcp,udp}
 	entries, err := provider.ReadProcNetFile(protocol, ipVersion)
 	if err != nil {
-		return 0, "unknown", "unknown", "unknown", fmt.Errorf("failed to read /proc/net/%s: %w", protocol, err)
+		return 0, "unknown", "unknown", "unknown", nil, fmt.Errorf("failed to read /proc/net/%s: %w", protocol, err)
 	}
 
 	// Find matching socket by local address
@@ -265,13 +319,13 @@ func getProcessInfo(provider IProcProvider, srcIP, srcPort, protocol string) (in
 	}
 
 	if matchedInode == 0 {
-		return 0, "unknown", "unknown", "unknown", fmt.Errorf("socket not found in /proc/net/%s", protocol)
+		return 0, "unknown", "unknown", "unknown", nil, fmt.Errorf("socket not found in /proc/net/%s", protocol)
 	}
 
 	// Find process owning this inode
 	pid, err := provider.FindProcessByInode(matchedInode)
 	if err != nil {
-		return 0, "unknown", "unknown", "unknown", fmt.Errorf("failed to find process: %w", err)
+		return 0, "unknown", "unknown", "unknown", nil, fmt.Errorf("failed to find process: %w", err)
 	}
 
 	// Get process name
@@ -292,5 +346,7 @@ func getProcessInfo(provider IProcProvider, srcIP, srcPort, protocol string) (in
 		execPath = "unknown"
 	}
 
-	return pid, processName, cmdLine, execPath, nil
+	parents := getParentChain(provider, pid)
+
+	return pid, processName, cmdLine, execPath, parents, nil
 }

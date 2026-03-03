@@ -240,7 +240,7 @@ func (a *Agent) getCachedOrLookupProcess(pkt PacketInfo, protocol string) *Proce
 	}
 
 	// Fallback to host process lookup
-	pid, processName, cmdLine, execPath, err := getProcessInfo(a.procProvider, pkt.SrcIP, pkt.SrcPort, protocol)
+	pid, processName, cmdLine, execPath, parents, err := getProcessInfo(a.procProvider, pkt.SrcIP, pkt.SrcPort, protocol)
 	if err != nil {
 		fmt.Printf("Process lookup failed for %s: %v\n", cacheKey, err)
 		return &ProcessInfo{
@@ -255,12 +255,13 @@ func (a *Agent) getCachedOrLookupProcess(pkt PacketInfo, protocol string) *Proce
 
 	// Cache the result
 	processInfo := &ProcessInfo{
-		PID:            pid,
-		ProcessName:    processName,
-		CommandLine:    cmdLine,
-		ExecutablePath: execPath,
-		Docker:         nil,
-		Timestamp:      time.Now().Unix(),
+		PID:             pid,
+		ProcessName:     processName,
+		CommandLine:     cmdLine,
+		ExecutablePath:  execPath,
+		ParentProcesses: parents,
+		Docker:          nil,
+		Timestamp:       time.Now().Unix(),
 	}
 	a.processInfoCache[cacheKey] = processInfo
 	return processInfo
@@ -278,21 +279,22 @@ func (a *Agent) addConnectionLog(pkt PacketInfo, decision, protocol, domain, rea
 	}
 
 	logEntry := ConnectionLog{
-		Timestamp:      time.Now().UnixMilli(),
-		Decision:       decision,
-		Protocol:       protocol,
-		SrcIP:          pkt.SrcIP,
-		SrcPort:        pkt.SrcPort,
-		DstIP:          pkt.DstIP,
-		DstPort:        pkt.DstPort,
-		Domain:         domain,
-		Reason:         reason,
-		PID:            pkt.PID,
-		ProcessName:    pkt.ProcessName,
-		CommandLine:    pkt.CommandLine,
-		ExecutablePath: pkt.ExecutablePath,
-		ProcessingTime: time.Since(pkt.StartTime).Milliseconds(),
-		Docker:         pkt.Docker,
+		Timestamp:       time.Now().UnixMilli(),
+		Decision:        decision,
+		Protocol:        protocol,
+		SrcIP:           pkt.SrcIP,
+		SrcPort:         pkt.SrcPort,
+		DstIP:           pkt.DstIP,
+		DstPort:         pkt.DstPort,
+		Domain:          domain,
+		Reason:          reason,
+		PID:             pkt.PID,
+		ProcessName:     pkt.ProcessName,
+		CommandLine:     pkt.CommandLine,
+		ExecutablePath:  pkt.ExecutablePath,
+		ParentProcesses: pkt.ParentProcesses,
+		ProcessingTime:  time.Since(pkt.StartTime).Milliseconds(),
+		Docker:          pkt.Docker,
 	}
 
 	jsonBytes, err := json.Marshal(logEntry)
@@ -375,6 +377,7 @@ func (a *Agent) extractPacketInfo(packet gopacket.Packet) PacketInfo {
 		info.ProcessName = processInfo.ProcessName
 		info.CommandLine = processInfo.CommandLine
 		info.ExecutablePath = processInfo.ExecutablePath
+		info.ParentProcesses = processInfo.ParentProcesses
 		info.Docker = processInfo.Docker
 	}
 
