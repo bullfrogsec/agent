@@ -246,6 +246,25 @@ func getProcessInfo(provider IProcProvider, srcIP, srcPort, protocol string) (in
 	}
 
 	if matchedInode == 0 {
+		// Fallback: some processes (e.g. tailscaled) bind to 0.0.0.0 and the
+		// kernel selects the source IP at send time, so the socket appears as
+		// wildcard in /proc/net/{tcp,udp} even though the packet has a specific
+		// source IP.
+		var wildcardHex string
+		if ipVersion == 4 {
+			wildcardHex, _ = ipPortToHex("0.0.0.0", srcPort)
+		} else {
+			wildcardHex, _ = ipPortToHex("::", srcPort)
+		}
+		for _, entry := range entries {
+			if entry.LocalAddr == wildcardHex {
+				matchedInode = entry.Inode
+				break
+			}
+		}
+	}
+
+	if matchedInode == 0 {
 		return 0, "unknown", "unknown", "unknown", fmt.Errorf("socket not found in /proc/net/%s", protocol)
 	}
 
