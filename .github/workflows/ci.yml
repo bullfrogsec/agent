@@ -59,7 +59,7 @@ jobs:
         test-integration-block-dns-any,
         test-integration-docker-block,
       ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write

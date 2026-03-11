@@ -21,19 +21,19 @@ test.integration: test.integration.block test.integration.audit test.integration
 
 .PHONY: test.integration.block
 test.integration.block:
-	sudo bash tests/block.sh
+	bash tests/block.sh
 
 .PHONY: test.integration.audit
 test.integration.audit:
-	sudo bash tests/audit.sh
+	bash tests/audit.sh
 
 .PHONY: test.integration.docker-block
 test.integration.docker-block:
-	sudo bash tests/docker-block.sh
+	bash tests/docker-block.sh
 
 .PHONY: test.integration.block-dns-any
 test.integration.block-dns-any:
-	sudo bash tests/block-dns-any.sh
+	bash tests/block-dns-any.sh
 
 # All tests - For local development with no agent running
 .PHONY: test
