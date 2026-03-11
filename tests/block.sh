@@ -6,10 +6,10 @@ set -x
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-mkdir -p /var/log/gha-agent
+sudo mkdir -p /var/log/gha-agent
 
 # Start the agent
-"$PROJECT_DIR/agent" \
+sudo "$PROJECT_DIR/agent" \
   --egress-policy=block \
   --dns-policy=allowed-domains-only \
   --allowed-domains="*.google.com" \
@@ -69,13 +69,13 @@ if ! timeout 5 dig @1.1.1.1 www.google.com; then
   exit 1
 fi
 
-# # === Sudo Tests ===
-# echo "=== Sudo Tests ==="
+# === Sudo Tests ===
+echo "=== Sudo Tests ==="
 
-# if sudo -n true 2>/dev/null; then
-#   echo "Expected sudo to fail, but it succeeded"
-#   exit 1
-# fi
+if sudo -n true 2>/dev/null; then
+  echo "Expected sudo to fail, but it succeeded"
+  exit 1
+fi
 
 echo ""
 echo "=========================================="

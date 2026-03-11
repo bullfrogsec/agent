@@ -6,10 +6,10 @@ set -x
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-mkdir -p /var/log/gha-agent
+sudo mkdir -p /var/log/gha-agent
 
 # Start the agent with dns-policy=any
-"$PROJECT_DIR/agent" \
+sudo "$PROJECT_DIR/agent" \
   --egress-policy=block \
   --dns-policy=any \
   --allowed-domains="*.google.com" \

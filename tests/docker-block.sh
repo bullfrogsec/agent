@@ -6,10 +6,10 @@ set -x
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-mkdir -p /var/log/gha-agent
+sudo mkdir -p /var/log/gha-agent
 
 # Start the agent
-"$PROJECT_DIR/agent" \
+sudo "$PROJECT_DIR/agent" \
   --egress-policy=block \
   --dns-policy=allowed-domains-only \
   --allowed-domains="*.docker.io,docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com,production.cloudflare.docker.com,www.google.com" \
