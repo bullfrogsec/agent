@@ -50,4 +50,5 @@ test.lint:
 
 .PHONY: test.unit
 test.unit:
+	go mod download
 	go test ./...
