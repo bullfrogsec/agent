@@ -169,8 +169,7 @@ func (p *TetragonProcProvider) handleExec(ev *tetragonpb.ProcessExec) {
 	binary := ev.GetProcess().GetBinary()
 	args := ev.GetProcess().GetArguments()
 
-	log.Printf("[tetragon] exec pid=%d ppid=%d binary=%q args=%q ancestors=%d",
-		pid, ppid, binary, args, len(ev.GetAncestors()))
+	log.Printf("[tetragon] exec pid=%d ppid=%d binary=%q args=%q", pid, ppid, binary, args)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -194,8 +193,6 @@ func (p *TetragonProcProvider) handleExec(ev *tetragonpb.ProcessExec) {
 				Binary: ancestor.GetBinary(),
 				Args:   ancestor.GetArguments(),
 			}
-			log.Printf("[tetragon] ancestor pid=%d binary=%q (from exec of pid=%d)",
-				ancestorPID, ancestor.GetBinary(), pid)
 		}
 	}
 }
@@ -211,7 +208,6 @@ func (p *TetragonProcProvider) handleExit(ev *tetragonpb.ProcessExit) {
 
 	if entry, ok := p.entries[pid]; ok {
 		entry.ExitedAt = time.Now()
-		log.Printf("[tetragon] exit  pid=%d binary=%q (retained for %s)", pid, entry.Binary, tetragonExitRetention)
 	}
 	// Entry is NOT deleted immediately — retained for tetragonExitRetention
 	// so that double-fork parent chains remain resolvable.
@@ -276,12 +272,9 @@ func (p *TetragonProcProvider) GetParentPID(pid int) (int, error) {
 	entry, ok := p.entries[uint32(pid)]
 	p.mu.RUnlock()
 	if ok {
-		log.Printf("[tetragon] GetParentPID(pid=%d) → ppid=%d [cache]", pid, entry.PPID)
 		return int(entry.PPID), nil
 	}
-	ppid, err := p.fallback.GetParentPID(pid)
-	log.Printf("[tetragon] GetParentPID(pid=%d) → ppid=%d [/proc fallback, err=%v]", pid, ppid, err)
-	return ppid, err
+	return p.fallback.GetParentPID(pid)
 }
 
 func (p *TetragonProcProvider) GetProcessName(pid int) (string, error) {
@@ -289,13 +282,9 @@ func (p *TetragonProcProvider) GetProcessName(pid int) (string, error) {
 	entry, ok := p.entries[uint32(pid)]
 	p.mu.RUnlock()
 	if ok && entry.Binary != "" {
-		name := filepath.Base(entry.Binary)
-		log.Printf("[tetragon] GetProcessName(pid=%d) → %q [cache]", pid, name)
-		return name, nil
+		return filepath.Base(entry.Binary), nil
 	}
-	name, err := p.fallback.GetProcessName(pid)
-	log.Printf("[tetragon] GetProcessName(pid=%d) → %q [/proc fallback, err=%v]", pid, name, err)
-	return name, err
+	return p.fallback.GetProcessName(pid)
 }
 
 func (p *TetragonProcProvider) GetCommandLine(pid int) (string, error) {
@@ -303,18 +292,12 @@ func (p *TetragonProcProvider) GetCommandLine(pid int) (string, error) {
 	entry, ok := p.entries[uint32(pid)]
 	p.mu.RUnlock()
 	if ok && entry.Binary != "" {
-		var cmdline string
 		if entry.Args != "" {
-			cmdline = entry.Binary + " " + entry.Args
-		} else {
-			cmdline = entry.Binary
+			return entry.Binary + " " + entry.Args, nil
 		}
-		log.Printf("[tetragon] GetCommandLine(pid=%d) → %q [cache]", pid, cmdline)
-		return cmdline, nil
+		return entry.Binary, nil
 	}
-	cmdline, err := p.fallback.GetCommandLine(pid)
-	log.Printf("[tetragon] GetCommandLine(pid=%d) → %q [/proc fallback, err=%v]", pid, cmdline, err)
-	return cmdline, err
+	return p.fallback.GetCommandLine(pid)
 }
 
 func (p *TetragonProcProvider) GetExecutablePath(pid int) (string, error) {
@@ -322,12 +305,9 @@ func (p *TetragonProcProvider) GetExecutablePath(pid int) (string, error) {
 	entry, ok := p.entries[uint32(pid)]
 	p.mu.RUnlock()
 	if ok && entry.Binary != "" {
-		log.Printf("[tetragon] GetExecutablePath(pid=%d) → %q [cache]", pid, entry.Binary)
 		return entry.Binary, nil
 	}
-	path, err := p.fallback.GetExecutablePath(pid)
-	log.Printf("[tetragon] GetExecutablePath(pid=%d) → %q [/proc fallback, err=%v]", pid, path, err)
-	return path, err
+	return p.fallback.GetExecutablePath(pid)
 }
 
 // These methods delegate entirely to LinuxProcProvider — socket scanning
