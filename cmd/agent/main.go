@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -17,8 +18,31 @@ func main() {
 	egressPolicy := flag.String("egress-policy", "audit", "Egress policy: audit or block")
 	enableSudo := flag.Bool("enable-sudo", true, "Enable sudo: true or false")
 	collectProcessInfo := flag.Bool("collect-process-info", true, "Collect process information: true or false")
+	tetragonPath := flag.String("tetragon-path", "", "Path to tetragon binary (empty = disable)")
 
 	flag.Parse()
+
+	// Try Tetragon-backed provider; fall back gracefully if unavailable
+	var procProvider agent.IProcProvider
+	if *tetragonPath != "" {
+		if err := ensureTetragon(*tetragonPath); err != nil {
+			log.Printf("Could not ensure tetragon binary, using /proc fallback: %v", err)
+			*tetragonPath = ""
+		}
+	}
+	if *tetragonPath != "" {
+		tp, err := agent.NewTetragonProcProvider(*tetragonPath, "unix:///run/tetragon/tetragon.sock")
+		if err != nil {
+			log.Printf("Tetragon unavailable, using /proc fallback: %v", err)
+			procProvider = &agent.LinuxProcProvider{}
+		} else {
+			log.Printf("Tetragon process tracking active")
+			defer tp.Close()
+			procProvider = tp
+		}
+	} else {
+		procProvider = &agent.LinuxProcProvider{}
+	}
 
 	agentInstance := agent.NewAgent(agent.AgentConfig{
 		DNSPolicy:          *dnsPolicy,
@@ -29,7 +53,7 @@ func main() {
 		CollectProcessInfo: *collectProcessInfo,
 		NetInfoProvider:    &agent.LinuxNetInfoProvider{},
 		FileSystem:         &agent.FileSystem{},
-		ProcProvider:       &agent.LinuxProcProvider{},
+		ProcProvider:       procProvider,
 	})
 
 	if err := agent.LoadNftRules(*egressPolicy); err != nil {
