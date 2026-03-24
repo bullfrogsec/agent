@@ -113,9 +113,16 @@ jobs:
             agent-arm64.tar.gz
 
   test-integration-audit:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -123,7 +130,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent-amd64
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
@@ -135,9 +142,16 @@ jobs:
         run: make test.integration.audit
 
   test-integration-block:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -145,7 +159,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent-amd64
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
@@ -157,9 +171,16 @@ jobs:
         run: make test.integration.block
 
   test-integration-block-dns-any:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -167,7 +188,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent-amd64
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
@@ -179,9 +200,16 @@ jobs:
         run: make test.integration.block-dns-any
 
   test-integration-docker-block:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -189,7 +217,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent-amd64
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
