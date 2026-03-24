@@ -15,10 +15,18 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Enable egress filtering
+        if: matrix.arch == 'amd64'
         uses: bullfrogsec/bullfrog@78a54a1a4c3d3325fe01846f60b630b6ee7bcf06 # v0.9.3
         with:
           egress-policy: block
@@ -38,7 +46,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev
 
       - name: Build
-        run: make build
+        run: |
+          docker build --tag agent-builder .
+          docker rm --force agent || true
+          docker run --name agent agent-builder
+          docker cp agent:/agent/agent .
 
       - name: Test (CI)
         run: make test.ci
@@ -46,7 +58,7 @@ jobs:
       - name: Upload agent binary
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: agent
+          name: agent-${{ matrix.arch }}
           path: agent
           retention-days: 1
 
@@ -76,25 +88,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download agent binary
+      - name: Download amd64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent
+          name: agent-amd64
+          path: agent-amd64
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent-arm64
+          path: agent-arm64
 
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tar -czf agent.tar.gz agent
+          tar -czf agent-amd64.tar.gz -C agent-amd64 agent
+          tar -czf agent-arm64.tar.gz -C agent-arm64 agent
           gh release create ${{ github.ref_name }} \
             --title "${{ github.ref_name }}" \
             --notes "See [CHANGELOG.md](https://github.com/bullfrogsec/agent/blob/main/CHANGELOG.md)" \
-            agent.tar.gz
+            agent-amd64.tar.gz \
+            agent-arm64.tar.gz
 
   test-integration-audit:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -102,7 +130,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
@@ -114,9 +142,16 @@ jobs:
         run: make test.integration.audit
 
   test-integration-block:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -124,7 +159,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
@@ -136,9 +171,16 @@ jobs:
         run: make test.integration.block
 
   test-integration-block-dns-any:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -146,7 +188,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
@@ -158,9 +200,16 @@ jobs:
         run: make test.integration.block-dns-any
 
   test-integration-docker-block:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     needs: build-and-test
     timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -168,7 +217,7 @@ jobs:
       - name: Download agent binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: agent
+          name: agent-${{ matrix.arch }}
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables

@@ -2,7 +2,7 @@ module github.com/bullfrogsec/agent
 
 go 1.24.0
 
-toolchain go1.24.11
+toolchain go1.24.13
 
 require github.com/AkihiroSuda/go-netfilter-queue v0.0.0-20230310003200-24cd054ca0f8
 
