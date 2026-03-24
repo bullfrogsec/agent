@@ -1,4 +1,4 @@
-FROM golang:1.24.11-bookworm
+FROM golang:1.24.13-bookworm
 
 ARG BUILDOS
 ARG BUILDARCH
