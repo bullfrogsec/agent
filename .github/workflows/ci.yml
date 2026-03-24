@@ -15,11 +15,15 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Enable egress filtering
         uses: bullfrogsec/bullfrog@78a54a1a4c3d3325fe01846f60b630b6ee7bcf06 # v0.9.3
@@ -41,10 +45,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev
 
       - name: Build
-        run: docker build --tag agent-builder --build-arg BUILDOS=linux --build-arg BUILDARCH=${{ matrix.arch }} .
-
-      - name: Extract binary
         run: |
+          docker build --tag agent-builder .
           docker rm --force agent || true
           docker run --name agent agent-builder
           docker cp agent:/agent/agent .
