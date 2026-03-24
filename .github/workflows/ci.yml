@@ -26,6 +26,7 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - name: Enable egress filtering
+        if: matrix.arch == 'amd64'
         uses: bullfrogsec/bullfrog@78a54a1a4c3d3325fe01846f60b630b6ee7bcf06 # v0.9.3
         with:
           egress-policy: block
