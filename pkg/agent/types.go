@@ -99,6 +99,9 @@ type AgentConfig struct {
 	FileSystem         IFileSystem
 	ProcProvider       IProcProvider
 	DockerProvider     IDockerProvider
+	// PacketSender injects the agent's own packets. Left nil, block mode
+	// opens a raw socket for itself; tests supply a fake.
+	PacketSender IPacketSender
 }
 
 // ProcessInfo holds process identification data

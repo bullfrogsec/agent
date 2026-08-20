@@ -32,6 +32,8 @@ func main() {
 		ProcProvider:       &agent.LinuxProcProvider{},
 	})
 
+	defer agentInstance.Close()
+
 	if err := agent.LoadNftRules(*egressPolicy); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

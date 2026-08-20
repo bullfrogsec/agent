@@ -12,7 +12,7 @@ sudo mkdir -p /var/log/gha-agent
 sudo "$PROJECT_DIR/agent" \
   --egress-policy=block \
   --dns-policy=allowed-domains-only \
-  --allowed-domains="*.docker.io,docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com,production.cloudflare.docker.com,www.google.com" \
+  --allowed-domains="*.docker.io,docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com,production.cloudfront.docker.com,www.google.com" \
   --allowed-ips="172.17.0.0/16" \
   --collect-process-info=true \
   &

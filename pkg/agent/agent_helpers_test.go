@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"testing"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -751,4 +752,85 @@ func GenerateDNSTypeAAAAResponsePacket(domain string, answerIP net.IP, nameserve
 		IP:   answerIP,
 	}
 	return GenerateDNSResponsePacket(question, answer, nameserver)
+}
+
+// mockPacketSender records what the agent injected instead of putting it on
+// the wire, so reset construction is testable without CAP_NET_RAW.
+type mockPacketSender struct {
+	sent    [][]byte
+	dsts    []net.IP
+	closed  bool
+	sendErr error
+}
+
+func (m *mockPacketSender) SendIPv4(dst net.IP, packet []byte) error {
+	if m.sendErr != nil {
+		return m.sendErr
+	}
+	m.dsts = append(m.dsts, dst)
+	m.sent = append(m.sent, packet)
+	return nil
+}
+
+func (m *mockPacketSender) Close() error {
+	m.closed = true
+	return nil
+}
+
+// count is how many packets the agent has injected so far.
+func (m *mockPacketSender) count() int { return len(m.sent) }
+
+// lastTCP decodes the most recently injected packet.
+func (m *mockPacketSender) lastTCP(t *testing.T) (*layers.IPv4, *layers.TCP) {
+	t.Helper()
+	if len(m.sent) == 0 {
+		t.Fatal("no packet was injected")
+	}
+	pkt := gopacket.NewPacket(m.sent[len(m.sent)-1], layers.LayerTypeIPv4, gopacket.Default)
+	ip, ok := pkt.NetworkLayer().(*layers.IPv4)
+	if !ok {
+		t.Fatalf("injected packet is not IPv4: %v", pkt)
+	}
+	tcpLayer := pkt.Layer(layers.LayerTypeTCP)
+	if tcpLayer == nil {
+		t.Fatalf("injected packet has no TCP layer: %v", pkt)
+	}
+	return ip, tcpLayer.(*layers.TCP)
+}
+
+// GenerateTCPPacketWithFlags builds a TCP packet with explicit flags and
+// sequence numbers — what a reset has to be derived from.
+func GenerateTCPPacketWithFlags(srcIP, dstIP net.IP, srcPort, dstPort uint16,
+	seq, ack uint32, syn, ackFlag, rst bool) gopacket.Packet {
+
+	ether := layers.Ethernet{
+		EthernetType: layers.EthernetTypeIPv4,
+		SrcMAC:       net.HardwareAddr{0xFF, 0xAA, 0xFA, 0xAA, 0xFF, 0xAA},
+		DstMAC:       net.HardwareAddr{0xBD, 0xBD, 0xBD, 0xBD, 0xBD, 0xBD},
+	}
+	ip := layers.IPv4{
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+		Version:  4,
+	}
+	tcp := layers.TCP{
+		SrcPort: layers.TCPPort(srcPort),
+		DstPort: layers.TCPPort(dstPort),
+		Seq:     seq,
+		Ack:     ack,
+		SYN:     syn,
+		ACK:     ackFlag,
+		RST:     rst,
+	}
+	tcp.SetNetworkLayerForChecksum(&ip)
+
+	buf := gopacket.NewSerializeBuffer()
+	opt := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+	gopacket.SerializeLayers(buf, opt, &ether, &ip, &tcp)
+
+	return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeEthernet, gopacket.Default)
 }

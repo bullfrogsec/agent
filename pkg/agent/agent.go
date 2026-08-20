@@ -33,6 +33,7 @@ type Agent struct {
 	processInfoCache   map[string]*ProcessInfo
 	procProvider       IProcProvider
 	dockerProvider     IDockerProvider
+	packetSender       IPacketSender
 }
 
 func NewAgent(config AgentConfig) *Agent {
@@ -49,6 +50,7 @@ func NewAgent(config AgentConfig) *Agent {
 		processInfoCache:   make(map[string]*ProcessInfo),
 		procProvider:       config.ProcProvider,
 		dockerProvider:     config.DockerProvider,
+		packetSender:       config.PacketSender,
 	}
 
 	// If no Docker provider specified, try to create one
@@ -63,8 +65,33 @@ func NewAgent(config AgentConfig) *Agent {
 		}
 	}
 
+	// The reset sender exists only to give a denial a voice, so it is opened
+	// only where denials happen. Audit mode never resets and never opens it.
+	//
+	// A failure to open it is not a failure to enforce: the agent keeps
+	// dropping exactly what it dropped before, denials merely go back to being
+	// silent. Refusing to start here would trade a diagnosability regression
+	// for an outage.
+	if agent.packetSender == nil && config.EgressPolicy == EGRESS_POLICY_BLOCK {
+		sender, err := NewRawSocketSender()
+		if err != nil {
+			log.Printf("Reset injection unavailable, denials will be silent: %v", err)
+		} else {
+			agent.packetSender = sender
+		}
+	}
+
 	agent.init(config)
 	return agent
+}
+
+// Close releases resources the agent owns. It does not tear down nftables
+// rules: those must come down before the process stops, not with it.
+func (a *Agent) Close() error {
+	if a.packetSender != nil {
+		return a.packetSender.Close()
+	}
+	return nil
 }
 
 func (a *Agent) init(config AgentConfig) error {
@@ -674,9 +701,11 @@ func (a *Agent) processNonDNSPacket(packet gopacket.Packet) uint8 {
 		return ACCEPT_REQUEST
 	}
 
-	// Block mode - drop the packet
+	// Block mode - drop the packet, and tell the client so, rather than
+	// leaving it to retransmit into a black hole until its own timeout.
 	fmt.Printf("BLOCK: %s:%s -> %s:%s (%s) [%s]\n", pkt.SrcIP, pkt.SrcPort, pkt.DstIP, pkt.DstPort, protocol, domain)
 	a.addConnectionLog(pkt, "blocked", protocol, domain, "ip-not-allowed")
+	a.sendResetForDeniedPacket(packet)
 	return DROP_REQUEST
 }
 
