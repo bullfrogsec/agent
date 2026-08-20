@@ -28,9 +28,32 @@ insert rule ip filter DOCKER-USER iifname "docker0" tcp dport 53 counter queue n
 insert rule ip filter DOCKER-USER iifname "docker0" udp dport 53 counter queue num 0
 # End of Docker mod
 
+# The agent answers a denied connection with a TCP reset, so the client fails
+# right away instead of hanging. Both chains below let those resets out, since
+# otherwise the policy that produced them could drop them.
+#
+# The exemption is written to fit a reset and nothing else, so it cannot be
+# used as a way around the allow-list:
+#
+#   meta mark    this run's random tag, filled in at load time. Only the agent
+#                knows it. See injectedPacketMark in reset.go.
+#   meta length  40 bytes, which is an IP header plus a TCP header. A packet
+#                carrying any payload is longer and does not match.
+#   tcp flags    RST set, with fin/syn/psh/urg clear, so no connection can be
+#                opened through the rule. ACK is allowed either way: a reset
+#                answering a SYN sets it, one closing an open connection
+#                does not.
+#
+# So even something that guessed the tag could only send an empty reset.
+#
+# Marks are set on a socket with SO_MARK, see socket(7). For the nftables
+# syntax, see the "META EXPRESSIONS" section of nft(8).
 table inet filter {
     chain input {
         type filter hook input priority 0; policy accept;
+
+        # Let the agent's own resets through. See the note above this table.
+        meta mark __INJECTED_PACKET_MARK__ meta l4proto tcp meta length 40 tcp flags & (fin|syn|rst|psh|urg) == rst counter accept
 
         # Match DNS responses FIRST (before conntrack check)
         # Otherwise established DNS responses would bypass the queue
@@ -46,6 +69,9 @@ table inet filter {
 
     chain output {
         type filter hook output priority 0; policy accept;
+
+        # Let the agent's own resets through. See the note above this table.
+        meta mark __INJECTED_PACKET_MARK__ meta l4proto tcp meta length 40 tcp flags & (fin|syn|rst|psh|urg) == rst counter accept
 
         # Match DNS requests FIRST (before conntrack check)
         # Otherwise established DNS queries would bypass the queue
