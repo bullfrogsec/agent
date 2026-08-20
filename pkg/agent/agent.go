@@ -16,7 +16,7 @@ import (
 	"github.com/google/gopacket/layers"
 )
 
-// Package-private variable for blocking state (used in processDNSTypeAResponse)
+// Package-private variable for blocking state (used in processDNSAddressResponse)
 var blocking = false
 
 type Agent struct {
@@ -446,7 +446,9 @@ func (a *Agent) processDNSQuery(dns *layers.DNS, pkt PacketInfo) uint8 {
 	return DROP_REQUEST
 }
 
-func (a *Agent) processDNSTypeAResponse(domain string, answer *layers.DNSResourceRecord, pkt PacketInfo) {
+// processDNSAddressResponse records the address an allowed domain resolved to,
+// for A and AAAA alike. answer.IP holds either family.
+func (a *Agent) processDNSAddressResponse(domain string, answer *layers.DNSResourceRecord, pkt PacketInfo) {
 	fmt.Printf("DNS Answer: %s %s %s\n", answer.Name, answer.Type, answer.IP)
 	fmt.Printf("%s:%s", answer.Name, answer.IP)
 	ip := answer.IP.String()
@@ -501,14 +503,14 @@ func (a *Agent) processDNSResponse(dns *layers.DNS, pkt PacketInfo) uint8 {
 	domain := string(dns.Questions[0].Name)
 	for _, answer := range dns.Answers {
 		fmt.Printf("DNS Answer: %s %s %s\n", answer.Name, answer.Type, answer.IP)
-		if answer.Type == layers.DNSTypeA {
-			a.processDNSTypeAResponse(domain, &answer, pkt)
+		// A and AAAA are the same decision on a different address family: an
+		// allowed domain has to be reachable over IPv6 too.
+		if answer.Type == layers.DNSTypeA || answer.Type == layers.DNSTypeAAAA {
+			a.processDNSAddressResponse(domain, &answer, pkt)
 		} else if answer.Type == layers.DNSTypeCNAME {
 			a.processDNSTypeCNAMEResponse(domain, &answer)
 		} else if answer.Type == layers.DNSTypeSRV {
 			a.processDNSTypeSRVResponse(domain, &answer)
-		} else if answer.Type == layers.DNSTypeAAAA {
-			fmt.Printf("DNS Answer: %s %s %s\n", answer.Name, answer.Type, answer.IP)
 		} else {
 			fmt.Printf("DNS Answer (others): %s %s %s\n", answer.Name, answer.Type, answer.IP)
 		}

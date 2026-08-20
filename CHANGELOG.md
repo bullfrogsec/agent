@@ -11,6 +11,18 @@
   e2e harness). Enforcement is unchanged: the denied traffic never reaches the
   destination either way, and audit mode never resets anything.
 
+### Fixed
+
+- IPv6 addresses from AAAA records are now added to the allow-list, so a domain
+  in `--allowed-domains` is reachable over IPv6. Only A records were recorded
+  before, which left an allowed domain unreachable on a dual-stack runner.
+
+- A container's IPv6 egress is now filtered. The rules the agent writes into
+  Docker's DOCKER-USER chain are in nftables' `ip` family, which cannot match
+  IPv6, so container IPv6 traffic reached any address unjudged and unlogged.
+  A forward chain in the agent's own `inet` table now covers it, which also
+  means the coverage does not depend on Docker's own IPv6 configuration.
+
 ### Security
 
 - The nftables rule that lets the agent's own resets through is now narrow

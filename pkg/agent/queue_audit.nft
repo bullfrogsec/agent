@@ -58,4 +58,25 @@ table inet filter {
         # Queue new connections for Go agent logging
         ct state new counter queue num 0 bypass
     }
+
+    # Forwarded traffic is container traffic. The DOCKER-USER rules at the top
+    # of this file cover IPv4, but they sit in the `ip` family, which cannot
+    # see IPv6. Without this chain a container's IPv6 egress is never logged.
+    chain forward {
+        type filter hook forward priority 0; policy accept;
+
+        # DNS first, even when established, so AAAA answers are seen and the
+        # addresses a domain resolves to are learned.
+        meta nfproto ipv6 udp sport 53 counter queue num 0 bypass
+        meta nfproto ipv6 tcp sport 53 counter queue num 0 bypass
+        meta nfproto ipv6 udp dport 53 counter queue num 0 bypass
+        meta nfproto ipv6 tcp dport 53 counter queue num 0 bypass
+
+        # Established connections were already logged when they opened.
+        meta nfproto ipv6 ct state established,related counter accept
+
+        # New connections go to the agent for logging. Audit mode never blocks,
+        # so there is no drop here and the queue is set to bypass.
+        meta nfproto ipv6 ct state new counter queue num 0 bypass
+    }
 }
