@@ -1,0 +1,43 @@
+# Dispatches the real suite to run in the private bullfrogsec/e2e repo, then
+# waits for nothing: the check run posted back to this commit IS the result.
+# See bullfrogsec/e2e/.github/workflows/README.md for the full design and
+# why this is a dispatch rather than a reusable workflow.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    # Fork PRs cannot see the App's secret and are not run here; the merge
+    # to main covers them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.E2E_APP_ID }}
+          private-key: ${{ secrets.E2E_APP_PRIVATE_KEY }}
+          owner: bullfrogsec
+          repositories: e2e
+
+      - name: Dispatch e2e
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          sha="${{ github.event.pull_request.head.sha || github.sha }}"
+          gh workflow run e2e.yml --repo bullfrogsec/e2e \
+            -f component=agent \
+            -f ref="$sha" \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="$sha"
