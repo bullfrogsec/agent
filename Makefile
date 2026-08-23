@@ -17,7 +17,7 @@ test.ci: test.lint test.unit
 
 # Integration tests - Require NO agent running (test real netfilter)
 .PHONY: test.integration
-test.integration: test.integration.block test.integration.audit test.integration.docker-block test.integration.block-dns-any
+test.integration: test.integration.block test.integration.audit test.integration.docker-block test.integration.block-dns-any test.integration.docker-escalation
 
 .PHONY: test.integration.block
 test.integration.block:
@@ -30,6 +30,13 @@ test.integration.audit:
 .PHONY: test.integration.docker-block
 test.integration.docker-block:
 	bash tests/docker-block.sh
+
+# Runs on a real runner, where the `runner` account is in the docker group and
+# /etc/sudoers.d/runner exists. Takes sudo away from the job, so it must be the
+# last thing a job does.
+.PHONY: test.integration.docker-escalation
+test.integration.docker-escalation:
+	bash tests/docker-escalation.sh
 
 .PHONY: test.integration.block-dns-any
 test.integration.block-dns-any:

@@ -15,6 +15,10 @@ const (
 	DNS_POLICY_ALLOWED_DOMAINS_ONLY       = "allowed-domains-only"
 	DNS_POLICY_ANY                        = "any"
 	DNS_PORT                              = layers.TCPPort(53)
+
+	// sudoersFile is the file a GitHub runner uses to grant its account
+	// passwordless sudo.
+	sudoersFile = "/etc/sudoers.d/runner"
 )
 
 // Package-private default configurations
@@ -44,7 +48,11 @@ var (
 		"productionresultssa18.blob.core.windows.net",
 		"productionresultssa19.blob.core.windows.net",
 	}
-	defaultIps        = []string{"168.63.129.16", "169.254.169.254", "127.0.0.1"}
+	defaultIps = []string{"168.63.129.16", "169.254.169.254", "127.0.0.1"}
+
+	// dockerSockets are the daemon sockets --enable-sudo=false must close to
+	// unprivileged users. See revokeDockerAccess in agent.go.
+	dockerSockets     = []string{"/var/run/docker.sock", "/run/docker.sock"}
 	defaultDNSServers = []string{"127.0.0.53"}
 )
 
