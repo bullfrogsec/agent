@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bullfrogsec/agent/pkg/dockerproxy"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
@@ -34,6 +36,7 @@ type Agent struct {
 	procProvider       IProcProvider
 	dockerProvider     IDockerProvider
 	packetSender       IPacketSender
+	dockerProxy        *dockerproxy.Proxy
 }
 
 func NewAgent(config AgentConfig) *Agent {
@@ -88,6 +91,16 @@ func NewAgent(config AgentConfig) *Agent {
 // Close releases resources the agent owns. It does not tear down nftables
 // rules: those must come down before the process stops, not with it.
 func (a *Agent) Close() error {
+	// Put the daemon's own socket back. A clean exit means the agent is no
+	// longer filtering anything, so leaving a socket nobody is listening on
+	// would break docker for no security gain. A kill leaves the filter in
+	// place, which is the safe direction.
+	if a.dockerProxy != nil {
+		if err := a.dockerProxy.Stop(); err != nil {
+			fmt.Printf("Restoring the docker socket: %v\n", err)
+		}
+		a.dockerProxy = nil
+	}
 	if a.packetSender != nil {
 		return a.packetSender.Close()
 	}
@@ -120,7 +133,9 @@ func (a *Agent) init(config AgentConfig) error {
 
 	if !config.EnableSudo {
 		if err := a.disableSudo(); err != nil {
-			log.Fatalln("Could not disable sudo")
+			// Fatal on purpose: continuing would leave a job believing sudo
+			// is unavailable while a path to root is still open.
+			log.Fatalf("Could not disable sudo: %v", err)
 		}
 	}
 
@@ -728,5 +743,66 @@ func (a *Agent) ProcessPacket(packet gopacket.Packet) uint8 {
 }
 
 func (a *Agent) disableSudo() error {
-	return os.Remove("/etc/sudoers.d/runner")
+	if err := os.Remove(sudoersFile); err != nil {
+		return err
+	}
+	return a.restrictDocker()
+}
+
+// restrictDocker closes the OTHER route to root that --enable-sudo=false has
+// to cover.
+//
+// A GitHub runner's account is in the `docker` group, which is
+// root-equivalent: the daemon runs as root and bind-mounts whatever a client
+// asks it to, so `docker run --privileged -v /:/host` writes the sudoers file
+// straight back, along with the ability to remove the egress rules.
+//
+// The daemon's API is filtered rather than switched off, so a job can still
+// build and run containers. If the filter cannot be installed, access is
+// denied outright: an unfiltered socket is the vulnerability, and a job
+// without Docker is only a nuisance.
+func (a *Agent) restrictDocker() error {
+	proxy, err := dockerproxy.Start(dockerproxy.DefaultSocket, func(format string, args ...any) {
+		fmt.Printf(format+"\n", args...)
+	})
+	switch {
+	case err == nil:
+		a.dockerProxy = proxy
+		fmt.Printf("Docker socket %s is now filtered: privileged containers, host mounts and host namespaces are refused\n",
+			proxy.Path)
+		return nil
+	case errors.Is(err, dockerproxy.ErrNoDocker):
+		return nil
+	default:
+		fmt.Printf("Could not filter the docker socket (%v); denying docker access instead\n", err)
+		return revokeDockerAccess()
+	}
+}
+
+// revokeDockerAccess is restrictDocker's fallback: it takes the socket to
+// root-only, which leaves Docker unusable for the rest of the job. See
+// restrictDocker for why the socket has to be closed at all.
+//
+// Group membership cannot be revoked from a process that already holds it —
+// the runner's worker has it before the agent starts — but socket permissions
+// are checked on every connect(), so tightening them bites running processes
+// too.
+func revokeDockerAccess() error {
+	for _, path := range dockerSockets {
+		// Chown and Chmod follow symlinks, so /var/run -> /run is handled and
+		// the two entries resolve to the same file on a normal runner.
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		if err := os.Chown(path, 0, 0); err != nil {
+			return fmt.Errorf("taking ownership of %s: %w", path, err)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return fmt.Errorf("restricting %s: %w", path, err)
+		}
+	}
+	return nil
 }
