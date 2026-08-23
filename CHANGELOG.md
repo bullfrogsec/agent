@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-23
+
 ### Changed
 
 - A connection denied in `--egress-policy=block` is now refused with a TCP reset instead of dropped in silence, so clients fail immediately rather than retransmitting until their own timeout (~20ms rather than 8s). Audit mode never resets anything.
