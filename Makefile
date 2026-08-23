@@ -17,7 +17,7 @@ test.ci: test.lint test.unit
 
 # Integration tests - Require NO agent running (test real netfilter)
 .PHONY: test.integration
-test.integration: test.integration.block test.integration.audit test.integration.docker-block test.integration.block-dns-any test.integration.docker-escalation
+test.integration: test.integration.block test.integration.audit test.integration.docker-block test.integration.block-dns-any test.integration.encrypted-dns-block test.integration.encrypted-dns-audit test.integration.docker-escalation
 
 .PHONY: test.integration.block
 test.integration.block:
@@ -41,6 +41,14 @@ test.integration.docker-escalation:
 .PHONY: test.integration.block-dns-any
 test.integration.block-dns-any:
 	bash tests/block-dns-any.sh
+
+.PHONY: test.integration.encrypted-dns-block
+test.integration.encrypted-dns-block:
+	bash tests/encrypted-dns-block.sh
+
+.PHONY: test.integration.encrypted-dns-audit
+test.integration.encrypted-dns-audit:
+	bash tests/encrypted-dns-audit.sh
 
 # All tests - For local development with no agent running
 .PHONY: test
