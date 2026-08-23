@@ -26,8 +26,9 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - name: Enable egress filtering
-        uses: bullfrogsec/bullfrog@7bc9b6e13e2dd9cbe5861f33bc26dc6bdb9d9ed2 # v0.10.0
+        uses: bullfrogsec/bullfrog@ebd3ce460ed3371d6fd751649fc1637ef0c21a18 # v0.11.0
         with:
+          api-token: ${{ secrets.BULLFROG_API_TOKEN }}
           egress-policy: block
           allowed-domains: |
             *.archive.ubuntu.com
@@ -78,8 +79,9 @@ jobs:
       contents: write
     steps:
       - name: Enable egress filtering
-        uses: bullfrogsec/bullfrog@7bc9b6e13e2dd9cbe5861f33bc26dc6bdb9d9ed2 # v0.10.0
+        uses: bullfrogsec/bullfrog@ebd3ce460ed3371d6fd751649fc1637ef0c21a18 # v0.11.0
         with:
+          api-token: ${{ secrets.BULLFROG_API_TOKEN }}
           egress-policy: block
           allowed-domains: |
             github.com
