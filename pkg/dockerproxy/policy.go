@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -178,6 +179,43 @@ var hostConfigSafe = map[string]bool{
 	"IOMaximumIOps": true, "IOMaximumBandwidth": true,
 }
 
+// maskedPathsRequired and readonlyPathsRequired are the entries under /proc and
+// /sys that a container must not be able to see or write. Losing one of them
+// is an escape rather than a tweak: with /proc/sys writable, root in a
+// container writes /proc/sys/kernel/core_pattern, which is host-global, and
+// /proc/kcore is the host's memory.
+//
+// They are judged as a MINIMUM the request has to cover, not as an exact list.
+// A container's HostConfig read back from the daemon always carries the
+// daemon's own defaults, so an exact match would refuse every container that
+// already exists, and would refuse a newer daemon that masks one more path.
+// Extra entries only tighten.
+var maskedPathsRequired = []string{
+	"/proc/acpi", "/proc/kcore", "/proc/keys", "/proc/latency_stats",
+	"/proc/sched_debug", "/proc/scsi", "/proc/timer_list", "/sys/firmware",
+}
+
+var readonlyPathsRequired = []string{
+	"/proc/bus", "/proc/fs", "/proc/irq", "/proc/sys", "/proc/sysrq-trigger",
+}
+
+func requiredPaths(field string, val json.RawMessage, required []string) Decision {
+	var list []string
+	if err := json.Unmarshal(val, &list); err != nil {
+		return deny("HostConfig.%s could not be parsed: %v", field, err)
+	}
+	have := make(map[string]bool, len(list))
+	for _, entry := range list {
+		have[path.Clean(entry)] = true
+	}
+	for _, want := range required {
+		if !have[want] {
+			return deny("HostConfig.%s does not cover %s, so it is refused while sudo is disabled: those masks are what keep host-global kernel knobs out of the container", field, want)
+		}
+	}
+	return allow
+}
+
 func (p *Policy) hostConfig(raw json.RawMessage) Decision {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
@@ -233,12 +271,14 @@ func (p *Policy) hostConfig(raw json.RawMessage) Decision {
 			if d := securityOpt(val); !d.Allow {
 				return d
 			}
-		// Docker masks and read-only-mounts a specific set of paths under
-		// /proc and /sys. Shortening either list is an escape rather than a
-		// tweak: with /proc/sys writable, root in a container writes
-		// /proc/sys/kernel/core_pattern, which is host-global.
-		case "MaskedPaths", "ReadonlyPaths":
-			return deny("overriding HostConfig.%s is not allowed while sudo is disabled: the default masks are what keep host-global kernel knobs out of the container", key)
+		case "MaskedPaths":
+			if d := requiredPaths(key, val, maskedPathsRequired); !d.Allow {
+				return d
+			}
+		case "ReadonlyPaths":
+			if d := requiredPaths(key, val, readonlyPathsRequired); !d.Allow {
+				return d
+			}
 
 		case "Annotations":
 			if !emptyMap(val) {

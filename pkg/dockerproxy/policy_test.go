@@ -129,6 +129,14 @@ func TestPolicyDeniesEscalation(t *testing.T) {
 			wantDenyReason: "MaskedPaths",
 		},
 		{
+			// /proc/sys left writable is /proc/sys/kernel/core_pattern, which
+			// is host-global. Docker's other defaults being present does not
+			// make up for the one that is gone.
+			name: "one path dropped from the read-only list", method: "POST", path: "/containers/create",
+			body:           `{"HostConfig":{"ReadonlyPaths":["/proc/bus","/proc/fs","/proc/irq","/proc/sysrq-trigger"]}}`,
+			wantDenyReason: "/proc/sys",
+		},
+		{
 			name: "volume plugin", method: "POST", path: "/containers/create",
 			body:           `{"HostConfig":{"VolumeDriver":"some-plugin"}}`,
 			wantDenyReason: "--volume-driver",
@@ -252,7 +260,33 @@ func TestPolicyDeniesEscalation(t *testing.T) {
 // lockdown: ordinary CI use of Docker has to keep working, or the filter is
 // just a slower way of switching Docker off.
 func TestPolicyAllowsOrdinaryUse(t *testing.T) {
-	p := &Policy{Inspect: stubInspector{volumes: map[string]map[string]string{"plainvol": {}}}}
+	// daemonDefaults is a HostConfig as the DAEMON hands it back, not as a
+	// client sends one: every field is filled in, including the default masks.
+	// Judging that as if it were a request is how `docker cp` and `docker exec`
+	// end up refused for every container on the box.
+	const daemonDefaults = `{"Binds":null,"ContainerIDFile":"","LogConfig":{"Type":"json-file","Config":{}},` +
+		`"NetworkMode":"bridge","PortBindings":{},"RestartPolicy":{"Name":"no","MaximumRetryCount":0},` +
+		`"AutoRemove":false,"VolumeDriver":"","VolumesFrom":null,"CapAdd":null,"CapDrop":null,` +
+		`"CgroupnsMode":"private","Dns":[],"DnsOptions":[],"DnsSearch":[],"ExtraHosts":null,` +
+		`"GroupAdd":null,"IpcMode":"private","Cgroup":"","Links":null,"OomScoreAdj":0,"PidMode":"",` +
+		`"Privileged":false,"PublishAllPorts":false,"ReadonlyRootfs":false,"SecurityOpt":null,` +
+		`"UTSMode":"","UsernsMode":"","ShmSize":67108864,"Runtime":"runc","Isolation":"",` +
+		`"CpuShares":0,"Memory":0,"NanoCpus":0,"CgroupParent":"","BlkioWeight":0,` +
+		`"BlkioWeightDevice":[],"BlkioDeviceReadBps":[],"BlkioDeviceWriteBps":[],` +
+		`"BlkioDeviceReadIOps":[],"BlkioDeviceWriteIOps":[],"CpuPeriod":0,"CpuQuota":0,` +
+		`"CpuRealtimePeriod":0,"CpuRealtimeRuntime":0,"CpusetCpus":"","CpusetMems":"","Devices":[],` +
+		`"DeviceCgroupRules":null,"DeviceRequests":null,"MemoryReservation":0,"MemorySwap":0,` +
+		`"MemorySwappiness":null,"OomKillDisable":null,"PidsLimit":null,"Ulimits":null,` +
+		`"CpuCount":0,"CpuPercent":0,"IOMaximumIOps":0,"IOMaximumBandwidth":0,"Mounts":null,` +
+		`"MaskedPaths":["/proc/asound","/proc/acpi","/proc/interrupts","/proc/kcore","/proc/keys",` +
+		`"/proc/latency_stats","/proc/timer_list","/proc/timer_stats","/proc/sched_debug","/proc/scsi",` +
+		`"/sys/firmware","/sys/devices/virtual/powercap"],` +
+		`"ReadonlyPaths":["/proc/bus","/proc/fs","/proc/irq","/proc/sys","/proc/sysrq-trigger"]}`
+
+	p := &Policy{Inspect: stubInspector{
+		volumes:    map[string]map[string]string{"plainvol": {}},
+		containers: map[string]string{"build-container": daemonDefaults},
+	}}
 
 	cases := []struct {
 		name         string
@@ -290,6 +324,10 @@ func TestPolicyAllowsOrdinaryUse(t *testing.T) {
 		{name: "logs", method: "GET", path: "/containers/abc/logs?follow=1"},
 		{name: "wait", method: "POST", path: "/containers/abc/wait"},
 		{name: "remove", method: "DELETE", path: "/containers/abc"},
+		{name: "copying files into an ordinary container", method: "PUT", path: "/containers/build-container/archive",
+			query: "path=/app"},
+		{name: "exec in an ordinary container", method: "POST", path: "/containers/build-container/exec",
+			body: `{"Cmd":["ls"]}`},
 		{name: "version", method: "GET", path: "/version"},
 		{name: "ping", method: "GET", path: "/_ping"},
 	}
