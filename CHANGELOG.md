@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `docker cp` and `docker exec` are no longer refused for every container while `--enable-sudo=false`. The Docker filter judged a container's configuration as read back from the daemon, which always carries the default `/proc` and `/sys` masks, and read their presence as an override. The masks are now judged as a minimum the container has to cover, so shortening either list is still refused.
+
 ## [0.11.0] - 2026-08-23
 
 ### Changed

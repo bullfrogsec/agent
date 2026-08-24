@@ -28,6 +28,7 @@ IMAGE="${IMAGE:-alpine:3.20}"
 # the check at the end to mean anything, and sudo is gone by then.
 MARKER=/etc/bullfrog-escalation-poc
 POC_VOLUME=bullfrog-poc-vol
+POC_COPY=$(mktemp)
 # The rule a successful escalation writes back. The reported proof of concept
 # hardcodes "runner", which is this account on a GitHub runner; using the real
 # account name keeps the final "sudo came back" check meaningful on any box,
@@ -79,6 +80,7 @@ cleanup() {
   # exactly when cleaning up matters: a leftover volume or marker would make
   # the next run report someone else's escalation.
   docker volume rm "$POC_VOLUME" >/dev/null 2>&1 || true
+  rm -f "$POC_COPY"
 }
 trap cleanup EXIT
 
@@ -152,6 +154,24 @@ if out=$(docker run --rm "$IMAGE" echo bullfrog-ok 2>&1); then
 else
   problem "an ordinary container could not run, so docker is unusable for this account: $(echo "$out" | head -2 | tr '\n' ' ')"
 fi
+
+# The other way to get a file into a container: create, copy, start. Both
+# endpoints judge the target container's configuration as the daemon reports
+# it, which is not the shape a client sends.
+CP_CONTAINER=bullfrog-cp-$$
+if out=$( { docker create --name "$CP_CONTAINER" "$IMAGE" cat /poc.txt &&
+  echo bullfrog-copied >"$POC_COPY" &&
+  docker cp "$POC_COPY" "$CP_CONTAINER:/poc.txt" &&
+  docker start -a "$CP_CONTAINER"; } 2>&1); then
+  if [[ "$out" == *bullfrog-copied* ]]; then
+    pass "docker create, cp and start work"
+  else
+    problem "the copied file did not reach the container: got '$(echo "$out" | tail -2 | tr '\n' ' ')'"
+  fi
+else
+  problem "docker create/cp/start was refused: $(echo "$out" | tail -2 | tr '\n' ' ')"
+fi
+docker rm -f "$CP_CONTAINER" >/dev/null 2>&1 || true
 
 if out=$(docker run --rm --cap-drop ALL -m 64m "$IMAGE" id 2>&1); then
   pass "dropped capabilities and resource limits are allowed"
