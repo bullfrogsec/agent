@@ -112,6 +112,8 @@ fi
 timeout 5 dig www.google.com
 
 sleep 2
+
+sudo cat "$LOG"
 sudo cat "$LOG" > /tmp/connections.log
 
 if ! jq -e -r 'select(.domain == "www.google.com")' /tmp/connections.log > /dev/null; then
