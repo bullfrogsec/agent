@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
 
 func TestNewAgent(t *testing.T) {
@@ -1757,6 +1758,84 @@ func TestIPv6PacketHandling(t *testing.T) {
 
 		if decision != ACCEPT_REQUEST {
 			t.Errorf("Expected ACCEPT_REQUEST for AAAA response, got %v", decision)
+		}
+	})
+}
+
+// A TCP segment can carry more than one DNS message. Judging only the first
+// one lets an allowed name escort a forbidden one past the allow-list, which
+// is a covert exfiltration channel (GHSA-236v-v2rq-6pq2).
+func TestProcessDNSOverTCPPipelining(t *testing.T) {
+	newTestAgent := func() *Agent {
+		return NewAgent(AgentConfig{
+			EgressPolicy:    EGRESS_POLICY_BLOCK,
+			DNSPolicy:       DNS_POLICY_ALLOWED_DOMAINS_ONLY,
+			AllowedDomains:  []string{"trusted.com"},
+			AllowedIPs:      []string{},
+			EnableSudo:      true,
+			NetInfoProvider: &mockNetInfoProvider{},
+			FileSystem:      &mockFileSystem{},
+			ProcProvider:    newMockProcProvider(),
+		})
+	}
+
+	t.Run("Block a pipelined payload whose second query is for a blocked domain", func(t *testing.T) {
+		packet := GenerateDNSOverTCPPipelinedPacket(
+			[]string{"trusted.com", "exfil.blocked.com"}, net.IP{127, 0, 0, 53})
+		decision := newTestAgent().ProcessPacket(packet)
+
+		if decision != DROP_REQUEST {
+			t.Errorf("Expected DROP_REQUEST for a pipelined payload carrying a blocked domain, got %v", decision)
+		}
+	})
+
+	t.Run("Block a pipelined payload whose first query is for a blocked domain", func(t *testing.T) {
+		packet := GenerateDNSOverTCPPipelinedPacket(
+			[]string{"exfil.blocked.com", "trusted.com"}, net.IP{127, 0, 0, 53})
+		decision := newTestAgent().ProcessPacket(packet)
+
+		if decision != DROP_REQUEST {
+			t.Errorf("Expected DROP_REQUEST, got %v", decision)
+		}
+	})
+
+	t.Run("Accept a pipelined payload where every query is for an allowed domain", func(t *testing.T) {
+		packet := GenerateDNSOverTCPPipelinedPacket(
+			[]string{"trusted.com", "trusted.com"}, net.IP{127, 0, 0, 53})
+		decision := newTestAgent().ProcessPacket(packet)
+
+		if decision != ACCEPT_REQUEST {
+			t.Errorf("Expected ACCEPT_REQUEST, got %v", decision)
+		}
+	})
+
+	// The same bypass one level down: several questions inside a single
+	// message rather than several messages in one segment.
+	t.Run("Block a message whose second question is for a blocked domain", func(t *testing.T) {
+		packet := GenerateDNSOverTCPMultiQuestionPacket(
+			[]string{"trusted.com", "exfil.blocked.com"}, net.IP{127, 0, 0, 53})
+		decision := newTestAgent().ProcessPacket(packet)
+
+		if decision != DROP_REQUEST {
+			t.Errorf("Expected DROP_REQUEST for a multi-question message carrying a blocked domain, got %v", decision)
+		}
+	})
+
+	// A message split across segments cannot be judged from this payload
+	// alone, so a payload that does not consist of whole messages is dropped.
+	t.Run("Drop a payload whose trailing message is truncated", func(t *testing.T) {
+		full := GenerateDNSOverTCPPipelinedPacket(
+			[]string{"trusted.com", "trusted.com"}, net.IP{127, 0, 0, 53})
+		tcp := full.Layer(layers.LayerTypeTCP).(*layers.TCP)
+		truncated := tcp.Payload[:len(tcp.Payload)-4]
+
+		agent := newTestAgent()
+		decision := agent.processDNSOverTCPPayload(truncated, PacketInfo{
+			SrcIP: "127.0.0.1", DstIP: "127.0.0.53",
+		})
+
+		if decision != DROP_REQUEST {
+			t.Errorf("Expected DROP_REQUEST for a truncated payload, got %v", decision)
 		}
 	})
 }

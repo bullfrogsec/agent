@@ -834,3 +834,118 @@ func GenerateTCPPacketWithFlags(srcIP, dstIP net.IP, srcPort, dstPort uint16,
 
 	return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeEthernet, gopacket.Default)
 }
+
+// GenerateDNSOverTCPPipelinedPacket creates one TCP packet carrying several
+// length-prefixed DNS queries, the way a client may pipeline them on a single
+// connection.
+func GenerateDNSOverTCPPipelinedPacket(domains []string, nameserver net.IP) gopacket.Packet {
+	ether := layers.Ethernet{
+		EthernetType: layers.EthernetTypeIPv4,
+		SrcMAC:       net.HardwareAddr{0xFF, 0xAA, 0xFA, 0xAA, 0xFF, 0xAA},
+		DstMAC:       net.HardwareAddr{0xBD, 0xBD, 0xBD, 0xBD, 0xBD, 0xBD},
+	}
+	ip := layers.IPv4{
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    net.IP{127, 0, 0, 1},
+		DstIP:    nameserver,
+		Version:  4,
+	}
+	tcp := layers.TCP{
+		SrcPort: layers.TCPPort(54321),
+		DstPort: layers.TCPPort(53),
+		SYN:     false,
+		ACK:     true,
+	}
+
+	var payload []byte
+	for i, domain := range domains {
+		dns := layers.DNS{
+			ID:           uint16(0x1234 + i),
+			QR:           false,
+			OpCode:       layers.DNSOpCodeQuery,
+			ResponseCode: layers.DNSResponseCodeNoErr,
+			Questions: []layers.DNSQuestion{
+				{
+					Name: []byte(domain),
+					Type: layers.DNSTypeA,
+				},
+			},
+		}
+
+		dnsBuf := gopacket.NewSerializeBuffer()
+		dns.SerializeTo(dnsBuf, gopacket.SerializeOptions{FixLengths: true})
+		dnsBytes := dnsBuf.Bytes()
+
+		dnsLen := uint16(len(dnsBytes))
+		payload = append(payload, byte(dnsLen>>8), byte(dnsLen&0xFF))
+		payload = append(payload, dnsBytes...)
+	}
+	tcp.Payload = payload
+	tcp.SetNetworkLayerForChecksum(&ip)
+
+	buf := gopacket.NewSerializeBuffer()
+	opt := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+	gopacket.SerializeLayers(buf, opt, &ether, &ip, &tcp, gopacket.Payload(payload))
+
+	return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeEthernet, gopacket.Default)
+}
+
+// GenerateDNSOverTCPMultiQuestionPacket creates a single DNS over TCP message
+// carrying several questions.
+func GenerateDNSOverTCPMultiQuestionPacket(domains []string, nameserver net.IP) gopacket.Packet {
+	ether := layers.Ethernet{
+		EthernetType: layers.EthernetTypeIPv4,
+		SrcMAC:       net.HardwareAddr{0xFF, 0xAA, 0xFA, 0xAA, 0xFF, 0xAA},
+		DstMAC:       net.HardwareAddr{0xBD, 0xBD, 0xBD, 0xBD, 0xBD, 0xBD},
+	}
+	ip := layers.IPv4{
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    net.IP{127, 0, 0, 1},
+		DstIP:    nameserver,
+		Version:  4,
+	}
+	tcp := layers.TCP{
+		SrcPort: layers.TCPPort(54321),
+		DstPort: layers.TCPPort(53),
+		SYN:     false,
+		ACK:     true,
+	}
+
+	dns := layers.DNS{
+		ID:           0x1234,
+		QR:           false,
+		OpCode:       layers.DNSOpCodeQuery,
+		ResponseCode: layers.DNSResponseCodeNoErr,
+	}
+	for _, domain := range domains {
+		dns.Questions = append(dns.Questions, layers.DNSQuestion{
+			Name: []byte(domain),
+			Type: layers.DNSTypeA,
+		})
+	}
+
+	dnsBuf := gopacket.NewSerializeBuffer()
+	dns.SerializeTo(dnsBuf, gopacket.SerializeOptions{FixLengths: true})
+	dnsBytes := dnsBuf.Bytes()
+
+	dnsLen := uint16(len(dnsBytes))
+	payload := make([]byte, 2+len(dnsBytes))
+	payload[0] = byte(dnsLen >> 8)
+	payload[1] = byte(dnsLen & 0xFF)
+	copy(payload[2:], dnsBytes)
+
+	tcp.Payload = payload
+	tcp.SetNetworkLayerForChecksum(&ip)
+
+	buf := gopacket.NewSerializeBuffer()
+	opt := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+	gopacket.SerializeLayers(buf, opt, &ether, &ip, &tcp, gopacket.Payload(payload))
+
+	return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeEthernet, gopacket.Default)
+}
