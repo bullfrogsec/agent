@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-08-24
+
 ### Fixed
 
 - DNS over TCP is now judged on every message a segment carries, not only the first. A query for a forbidden domain pipelined behind one for an allowed domain used to be released unread, which is a data exfiltration channel.
