@@ -438,27 +438,51 @@ func (a *Agent) processDNSLayer(dns *layers.DNS, pkt PacketInfo) uint8 {
 	return a.processDNSResponse(dns, pkt)
 }
 
+// questionDomain is the domain a question is judged on. An SRV name carries
+// the service and protocol as leading labels, which are not part of the domain
+// an allow-list entry names.
+func questionDomain(q layers.DNSQuestion) string {
+	domain := string(q.Name)
+	if q.Type == layers.DNSTypeSRV {
+		domain = extractDomainFromSRV(domain)
+		fmt.Printf("%s -> Converting domain from SRV query: %s\n", q.Name, domain)
+	}
+	return domain
+}
+
+// blockedQuestion returns the first question in the message whose domain is not
+// allowed. Every question has to pass: a message that pairs an allowed name
+// with a forbidden one must not be released on the strength of the allowed one.
+func (a *Agent) blockedQuestion(dns *layers.DNS) (string, bool) {
+	for _, q := range dns.Questions {
+		domain := questionDomain(q)
+		if !a.isDomainAllowed(domain) {
+			return domain, true
+		}
+	}
+	return "", false
+}
+
 func (a *Agent) processDNSQuery(dns *layers.DNS, pkt PacketInfo) uint8 {
 	for _, q := range dns.Questions {
-		domain := string(q.Name)
 		fmt.Printf("DNS Question: %s %s\n", q.Name, q.Type)
+	}
+	if len(dns.Questions) == 0 {
+		return DROP_REQUEST
+	}
 
-		if q.Type == layers.DNSTypeSRV {
-			originalDomain := domain
-			domain = extractDomainFromSRV(domain)
-			fmt.Printf("%s -> Converting domain from SRV query: %s\n", originalDomain, domain)
-		}
-		if a.isDomainAllowed(domain) {
-			fmt.Printf("%s -> Allowed DNS Query\n", domain)
-			a.addConnectionLog(pkt, "allowed", "DNS", domain, "domain-allowed")
-			return ACCEPT_REQUEST
-		}
-
+	if domain, blocked := a.blockedQuestion(dns); blocked {
 		fmt.Printf("%s -> Blocked DNS Query\n", domain)
 		a.addConnectionLog(pkt, "blocked", "DNS", domain, "domain-not-allowed")
 		return DROP_REQUEST
 	}
-	return DROP_REQUEST
+
+	for _, q := range dns.Questions {
+		domain := questionDomain(q)
+		fmt.Printf("%s -> Allowed DNS Query\n", domain)
+		a.addConnectionLog(pkt, "allowed", "DNS", domain, "domain-allowed")
+	}
+	return ACCEPT_REQUEST
 }
 
 // processDNSAddressResponse records the address an allowed domain resolved to,
@@ -562,41 +586,90 @@ func (a *Agent) processDNSPacket(packet gopacket.Packet) uint8 {
 	return a.processDNSLayer(dns, pkt)
 }
 
-func extractDNSFromTCPPayload(payload []byte) (*layers.DNS, error) {
+// extractDNSMessagesFromTCPPayload decodes every DNS message a TCP payload
+// carries.
+//
+// DNS over TCP frames each message with a 2-byte length prefix, and a client is
+// free to pipeline several of them into one segment. Decoding only the first
+// message is a bypass: an allowed name in front of a forbidden one would carry
+// the whole segment past the allow-list.
+//
+// The payload must consist of whole messages and nothing else. A message split
+// across segments cannot be judged from this payload alone, so it is an error
+// here and the caller drops it.
+func extractDNSMessagesFromTCPPayload(payload []byte) ([]*layers.DNS, error) {
 	if len(payload) < 3 {
 		return nil, fmt.Errorf("payload too short")
 	}
 
-	// Extract message length from first 2 bytes
-	// - First byte shifted left 8 bits + second byte
-	// - Creates 16-bit length prefix
-	messageLen := int(payload[0])<<8 | int(payload[1])
-	if messageLen == 0 || len(payload) < messageLen+2 {
-		return nil, fmt.Errorf("invalid DNS over TCP payload length")
+	var messages []*layers.DNS
+	for offset := 0; offset < len(payload); {
+		if len(payload)-offset < 2 {
+			return nil, fmt.Errorf("trailing bytes in DNS over TCP payload")
+		}
+
+		// Message length: first byte shifted left 8 bits + second byte.
+		messageLen := int(payload[offset])<<8 | int(payload[offset+1])
+		if messageLen == 0 || len(payload)-offset < messageLen+2 {
+			return nil, fmt.Errorf("invalid DNS over TCP payload length")
+		}
+
+		dns := &layers.DNS{}
+		err := dns.DecodeFromBytes(payload[offset+2:offset+2+messageLen], gopacket.NilDecodeFeedback)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode DNS over TCP payload: %w", err)
+		}
+		if len(dns.Questions) == 0 {
+			return nil, fmt.Errorf("no DNS questions in payload")
+		}
+
+		messages = append(messages, dns)
+		offset += messageLen + 2
 	}
 
-	// We attempt to decode the DNS over TCP payload
-	// The only way we can accept the request is if the DNS query is contained within a single TCP packet payload
-	dns := &layers.DNS{}
-	err := dns.DecodeFromBytes(payload[2:messageLen+2], gopacket.NilDecodeFeedback)
+	return messages, nil
+}
+
+// extractDNSFromTCPPayload returns the first DNS message in a TCP payload, for
+// logging. Decisions are made on every message: see
+// extractDNSMessagesFromTCPPayload.
+func extractDNSFromTCPPayload(payload []byte) (*layers.DNS, error) {
+	messages, err := extractDNSMessagesFromTCPPayload(payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode DNS over TCP payload: %w", err)
+		return nil, err
 	}
-
-	if len(dns.Questions) == 0 {
-		return nil, fmt.Errorf("no DNS questions in payload")
-	}
-
-	return dns, nil
+	return messages[0], nil
 }
 
 func (a *Agent) processDNSOverTCPPayload(payload []byte, pkt PacketInfo) uint8 {
-	dns, err := extractDNSFromTCPPayload(payload)
+	messages, err := extractDNSMessagesFromTCPPayload(payload)
 	if err != nil {
 		fmt.Printf("Failed to extract DNS from TCP payload: %v\n", err)
 		return DROP_REQUEST
 	}
-	return a.processDNSLayer(dns, pkt)
+
+	// The segment is judged as a whole before any of it is acted on: TCP
+	// delivers it whole or not at all, so one forbidden query has to sink the
+	// messages pipelined alongside it, and those must not be logged as allowed
+	// when they never leave.
+	for _, dns := range messages {
+		if dns.QR {
+			continue
+		}
+		if domain, blocked := a.blockedQuestion(dns); blocked {
+			fmt.Printf("%s -> Blocked DNS-over-TCP Query\n", domain)
+			a.addConnectionLog(pkt, "blocked", "TCP-DNS", domain, "domain-not-allowed")
+			return DROP_REQUEST
+		}
+	}
+
+	verdict := uint8(ACCEPT_REQUEST)
+	for _, dns := range messages {
+		if a.processDNSLayer(dns, pkt) == DROP_REQUEST {
+			verdict = DROP_REQUEST
+		}
+	}
+	return verdict
 }
 
 func (a *Agent) processDNSOverTCPPacket(packet gopacket.Packet) uint8 {
