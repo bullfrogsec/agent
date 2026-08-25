@@ -1,8 +1,6 @@
 module github.com/bullfrogsec/agent
 
-go 1.24.0
-
-toolchain go1.24.13
+go 1.25.0
 
 require github.com/AkihiroSuda/go-netfilter-queue v0.0.0-20230310003200-24cd054ca0f8
 
@@ -34,7 +32,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	golang.org/x/sys v0.39.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/time v0.14.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
