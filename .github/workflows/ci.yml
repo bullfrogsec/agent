@@ -256,7 +256,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libnetfilter-queue-dev nftables
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
