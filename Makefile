@@ -17,7 +17,7 @@ test.ci: test.lint test.unit
 
 # Integration tests - Require NO agent running (test real netfilter)
 .PHONY: test.integration
-test.integration: test.integration.block test.integration.audit test.integration.docker-block test.integration.block-dns-any test.integration.docker-escalation
+test.integration: test.integration.block test.integration.audit test.integration.docker-block test.integration.block-dns-any test.integration.dns-pipelining test.integration.docker-escalation
 
 .PHONY: test.integration.block
 test.integration.block:
@@ -37,6 +37,10 @@ test.integration.docker-block:
 .PHONY: test.integration.docker-escalation
 test.integration.docker-escalation:
 	bash tests/docker-escalation.sh
+
+.PHONY: test.integration.dns-pipelining
+test.integration.dns-pipelining:
+	bash tests/dns-pipelining.sh
 
 .PHONY: test.integration.block-dns-any
 test.integration.block-dns-any:
