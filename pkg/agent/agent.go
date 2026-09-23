@@ -353,7 +353,10 @@ func (a *Agent) loadAllowedDNSServers() error {
 	if err != nil {
 		return err
 	}
-	mergedDNSServers := append(defaultDNSServers, dnsServer)
+	mergedDNSServers := append([]string{}, defaultDNSServers...)
+	if dnsServer != "" {
+		mergedDNSServers = append(mergedDNSServers, dnsServer)
+	}
 
 	for _, dns := range mergedDNSServers {
 		a.allowedDNSServers[dns] = true
